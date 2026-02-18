@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Agent Memory</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace;
+      background: #0a0a0a; color: #e0e0e0;
+      max-width: 900px; margin: 0 auto; padding: 24px;
+    }
+    h1 { font-size: 1.5rem; margin-bottom: 8px; color: #fff; }
+    .subtitle { color: #888; font-size: 0.85rem; margin-bottom: 24px; }
+    .section { margin-bottom: 32px; }
+    .section h2 { font-size: 1.1rem; margin-bottom: 12px; color: #ccc; border-bottom: 1px solid #222; padding-bottom: 4px; }
+    textarea, input[type="text"] {
+      width: 100%; padding: 10px; border: 1px solid #333; border-radius: 4px;
+      background: #141414; color: #e0e0e0; font-family: inherit; font-size: 0.9rem;
+      resize: vertical;
+    }
+    textarea { min-height: 100px; }
+    textarea:focus, input:focus { outline: none; border-color: #555; }
+    button {
+      padding: 8px 20px; border: 1px solid #444; border-radius: 4px;
+      background: #1a1a1a; color: #e0e0e0; cursor: pointer; font-size: 0.85rem;
+      margin-top: 8px; transition: background 0.15s;
+    }
+    button:hover { background: #2a2a2a; }
+    button:disabled { opacity: 0.4; cursor: default; }
+    .result {
+      padding: 12px; margin: 8px 0; background: #141414; border: 1px solid #222;
+      border-radius: 4px; line-height: 1.5;
+    }
+    .result .text { color: #fff; font-weight: 500; }
+    .result .meta { color: #888; font-size: 0.8rem; margin-top: 4px; }
+    .score-bar {
+      display: inline-block; height: 4px; border-radius: 2px;
+      background: #4a9eff; margin-right: 8px; vertical-align: middle;
+    }
+    .tag {
+      display: inline-block; padding: 1px 6px; border-radius: 3px;
+      font-size: 0.75rem; background: #1e2a3a; color: #6ab0ff; margin-right: 4px;
+    }
+    .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 12px; }
+    .stat-card {
+      padding: 16px; background: #141414; border: 1px solid #222;
+      border-radius: 4px; text-align: center;
+    }
+    .stat-card .value { font-size: 1.8rem; font-weight: bold; color: #fff; }
+    .stat-card .label { font-size: 0.75rem; color: #888; margin-top: 4px; }
+    .status { font-size: 0.85rem; color: #888; margin-top: 8px; min-height: 20px; }
+    .error { color: #ff6b6b; }
+    #search-row { display: flex; gap: 8px; }
+    #search-row input { flex: 1; }
+    #search-row button { margin-top: 0; }
+  </style>
+</head>
+<body>
+  <h1>Agent Memory</h1>
+  <p class="subtitle">RAG + vector DB memory system -- add conversations, search with time-weighted scoring + MMR</p>
+
+  <div class="section">
+    <h2>Add Memory</h2>
+    <textarea id="add-text" placeholder="Paste conversation text here..."></textarea>
+    <button id="add-btn" onclick="addMemory()">Extract & Store</button>
+    <div id="add-status" class="status"></div>
+  </div>
+
+  <div class="section">
+    <h2>Search</h2>
+    <div id="search-row">
+      <input type="text" id="search-query" placeholder="What do you want to recall?" onkeydown="if(event.key==='Enter')searchMemories()">
+      <button id="search-btn" onclick="searchMemories()">Search</button>
+    </div>
+    <div id="search-status" class="status"></div>
+    <div id="search-results"></div>
+  </div>
+
+  <div class="section">
+    <h2>Stats</h2>
+    <div id="stats-grid" class="stats-grid"></div>
+    <button onclick="loadStats()" style="margin-top:12px">Refresh</button>
+    <button onclick="consolidateMemories()" style="margin-top:12px">Run Consolidation</button>
+    <div id="stats-status" class="status"></div>
+  </div>
+
+  <script>
+    const API = '';
+
+    function el(tag, attrs, children) {
+      const e = document.createElement(tag);
+      if (attrs) Object.entries(attrs).forEach(([k, v]) => {
+        if (k === 'className') e.className = v;
+        else if (k === 'style') Object.assign(e.style, v);
+        else e.setAttribute(k, v);
+      });
+      if (typeof children === 'string') e.textContent = children;
+      else if (Array.isArray(children)) children.forEach(c => { if (c) e.appendChild(c); });
+      return e;
+    }
+
+    function makeTag(text) {
+      return el('span', {className: 'tag'}, text);
+    }
+
+    function makeResultCard(r) {
+      const barW = Math.round(r.combined_score * 200);
+      const bar = el('span', {className: 'score-bar', style: {width: barW + 'px'}});
+      const textEl = el('div', {className: 'text'}, [bar, document.createTextNode(r.text)]);
+
+      const metaParts = [
+        `score=${r.combined_score.toFixed(3)}  sim=${r.raw_similarity.toFixed(3)}  ` +
+        `recency=${r.recency_score.toFixed(3)}  importance=${r.importance.toFixed(2)}  `
+      ];
+      const metaEl = el('div', {className: 'meta'});
+      metaEl.appendChild(document.createTextNode(metaParts[0]));
+      metaEl.appendChild(makeTag(r.memory_type));
+      metaEl.appendChild(document.createTextNode(' '));
+      metaEl.appendChild(makeTag(r.topic));
+      r.entities.forEach(ent => {
+        metaEl.appendChild(document.createTextNode(' '));
+        metaEl.appendChild(makeTag(ent));
+      });
+
+      return el('div', {className: 'result'}, [textEl, metaEl]);
+    }
+
+    function makeStatCard(value, label) {
+      return el('div', {className: 'stat-card'}, [
+        el('div', {className: 'value'}, String(value)),
+        el('div', {className: 'label'}, label),
+      ]);
+    }
+
+    async function addMemory() {
+      const text = document.getElementById('add-text').value.trim();
+      if (!text) return;
+      const btn = document.getElementById('add-btn');
+      const status = document.getElementById('add-status');
+      btn.disabled = true;
+      status.textContent = 'Extracting memories...';
+      status.className = 'status';
+      try {
+        const res = await fetch(API + '/api/add', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({text}),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || 'Failed');
+        status.textContent = `Stored ${data.count} memories (IDs: ${data.ids.join(', ')})`;
+        document.getElementById('add-text').value = '';
+        loadStats();
+      } catch (e) {
+        status.textContent = e.message;
+        status.className = 'status error';
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    async function searchMemories() {
+      const query = document.getElementById('search-query').value.trim();
+      if (!query) return;
+      const btn = document.getElementById('search-btn');
+      const status = document.getElementById('search-status');
+      const container = document.getElementById('search-results');
+      btn.disabled = true;
+      status.textContent = 'Searching...';
+      status.className = 'status';
+      container.replaceChildren();
+      try {
+        const res = await fetch(API + '/api/search', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({query, k: 10}),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || 'Failed');
+        status.textContent = `${data.count} results`;
+        data.results.forEach(r => container.appendChild(makeResultCard(r)));
+      } catch (e) {
+        status.textContent = e.message;
+        status.className = 'status error';
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    async function loadStats() {
+      const grid = document.getElementById('stats-grid');
+      try {
+        const res = await fetch(API + '/api/stats');
+        const data = await res.json();
+        grid.replaceChildren(makeStatCard(data.total, 'Total'));
+        for (const [type, count] of Object.entries(data.by_type)) {
+          grid.appendChild(makeStatCard(count, type));
+        }
+      } catch (e) {
+        grid.replaceChildren();
+        const errEl = el('div', {className: 'error'}, 'Could not load stats');
+        grid.appendChild(errEl);
+      }
+    }
+
+    async function consolidateMemories() {
+      const status = document.getElementById('stats-status');
+      status.textContent = 'Consolidating...';
+      try {
+        const res = await fetch(API + '/api/consolidate', {method: 'POST'});
+        const data = await res.json();
+        status.textContent = `Created ${data.summaries_created} summaries`;
+        loadStats();
+      } catch (e) {
+        status.textContent = e.message;
+        status.className = 'status error';
+      }
+    }
+
+    loadStats();
+  </script>
+</body>
+</html>

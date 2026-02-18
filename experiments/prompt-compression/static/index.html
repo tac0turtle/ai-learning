@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Prompt Compressor — LLMLingua-2</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace;
+    background: #0d1117; color: #c9d1d9;
+    display: flex; flex-direction: column; min-height: 100vh;
+  }
+  header {
+    padding: 1.2rem 2rem; border-bottom: 1px solid #21262d;
+  }
+  header h1 { font-size: 1.3rem; font-weight: 600; color: #e6edf3; }
+  header p { font-size: 0.85rem; color: #8b949e; margin-top: 0.25rem; }
+
+  main { flex: 1; display: flex; flex-direction: column; padding: 1.5rem 2rem; gap: 1rem; }
+
+  .controls {
+    display: flex; gap: 1.5rem; align-items: end; flex-wrap: wrap;
+  }
+  .control-group { display: flex; flex-direction: column; gap: 0.3rem; }
+  .control-group label { font-size: 0.8rem; color: #8b949e; }
+  .control-group input[type="range"] { width: 180px; accent-color: #58a6ff; }
+  .control-group input[type="text"] {
+    background: #161b22; border: 1px solid #30363d; color: #c9d1d9;
+    padding: 0.4rem 0.6rem; border-radius: 6px; font-size: 0.85rem; width: 200px;
+  }
+  .rate-value { font-size: 0.85rem; color: #58a6ff; font-weight: 600; min-width: 3ch; }
+
+  button#compress-btn {
+    background: #238636; color: #fff; border: none; padding: 0.55rem 1.4rem;
+    border-radius: 6px; font-size: 0.9rem; font-weight: 600; cursor: pointer;
+    transition: background 0.15s;
+  }
+  button#compress-btn:hover { background: #2ea043; }
+  button#compress-btn:disabled { background: #21262d; color: #484f58; cursor: not-allowed; }
+
+  .panels { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; flex: 1; min-height: 0; }
+  @media (max-width: 800px) { .panels { grid-template-columns: 1fr; } }
+
+  .panel {
+    display: flex; flex-direction: column; background: #161b22;
+    border: 1px solid #30363d; border-radius: 8px; overflow: hidden;
+  }
+  .panel-header {
+    padding: 0.6rem 1rem; font-size: 0.8rem; font-weight: 600;
+    background: #1c2128; border-bottom: 1px solid #30363d; color: #8b949e;
+  }
+  .panel textarea, .panel .output-text {
+    flex: 1; padding: 1rem; font-family: inherit; font-size: 0.9rem;
+    line-height: 1.6; background: transparent; color: #c9d1d9;
+    border: none; resize: none; min-height: 250px;
+  }
+  .panel textarea:focus { outline: none; }
+  .panel .output-text { white-space: pre-wrap; overflow-y: auto; }
+  .output-text.placeholder { color: #484f58; font-style: italic; }
+  .output-text.error { color: #f85149; }
+
+  .stats {
+    display: flex; gap: 2rem; padding: 0.8rem 2rem;
+    border-top: 1px solid #21262d; font-size: 0.82rem; color: #8b949e;
+    flex-wrap: wrap;
+  }
+  .stat span { color: #58a6ff; font-weight: 600; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Prompt Compressor</h1>
+  <p>LLMLingua-2 — local prompt compression for LLM cost & latency reduction</p>
+</header>
+
+<main>
+  <div class="controls">
+    <div class="control-group">
+      <label for="rate-slider">Compression rate</label>
+      <div style="display:flex;align-items:center;gap:0.5rem;">
+        <input type="range" id="rate-slider" min="0.1" max="0.9" step="0.01" value="0.33">
+        <span class="rate-value" id="rate-display">0.33</span>
+      </div>
+    </div>
+    <div class="control-group">
+      <label for="force-tokens">Force tokens (comma-sep)</label>
+      <input type="text" id="force-tokens" value="\n, ., ?">
+    </div>
+    <button id="compress-btn">Compress</button>
+  </div>
+
+  <div class="panels">
+    <div class="panel">
+      <div class="panel-header">Original</div>
+      <textarea id="input" placeholder="Paste your prompt here..."></textarea>
+    </div>
+    <div class="panel">
+      <div class="panel-header">Compressed</div>
+      <div class="output-text placeholder" id="output">Compressed output will appear here.</div>
+    </div>
+  </div>
+</main>
+
+<div class="stats" id="stats" style="display:none;">
+  <div>Original tokens: <span id="stat-original">-</span></div>
+  <div>Compressed tokens: <span id="stat-compressed">-</span></div>
+  <div>Ratio: <span id="stat-ratio">-</span></div>
+  <div>Latency: <span id="stat-time">-</span></div>
+</div>
+
+<script>
+  const rateSlider = document.getElementById("rate-slider");
+  const rateDisplay = document.getElementById("rate-display");
+  const forceTokensInput = document.getElementById("force-tokens");
+  const inputEl = document.getElementById("input");
+  const outputEl = document.getElementById("output");
+  const btn = document.getElementById("compress-btn");
+  const statsEl = document.getElementById("stats");
+
+  rateSlider.addEventListener("input", () => {
+    rateDisplay.textContent = parseFloat(rateSlider.value).toFixed(2);
+  });
+
+  function setOutput(text, className) {
+    outputEl.textContent = text;
+    outputEl.className = "output-text" + (className ? " " + className : "");
+  }
+
+  btn.addEventListener("click", async () => {
+    const prompt = inputEl.value.trim();
+    if (!prompt) return;
+
+    btn.disabled = true;
+    btn.textContent = "Compressing...";
+    setOutput("Working...", "placeholder");
+
+    const forceTokens = forceTokensInput.value
+      .split(",")
+      .map(t => t.trim().replace(/^\\n$/, "\n"))
+      .filter(Boolean);
+
+    try {
+      const res = await fetch("/api/compress", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prompt,
+          rate: parseFloat(rateSlider.value),
+          force_tokens: forceTokens,
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: res.statusText }));
+        throw new Error(err.detail || res.statusText);
+      }
+
+      const data = await res.json();
+      setOutput(data.compressed, "");
+
+      document.getElementById("stat-original").textContent = data.original_tokens;
+      document.getElementById("stat-compressed").textContent = data.compressed_tokens;
+      document.getElementById("stat-ratio").textContent = (data.ratio * 100).toFixed(1) + "%";
+      document.getElementById("stat-time").textContent = data.time_ms.toFixed(0) + " ms";
+      statsEl.style.display = "flex";
+    } catch (e) {
+      setOutput("Error: " + e.message, "error");
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "Compress";
+    }
+  });
+</script>
+</body>
+</html>

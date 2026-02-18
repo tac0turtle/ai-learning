@@ -1,0 +1,27 @@
+[
+  {
+    "query": "What programming language does Alice use?",
+    "relevant_texts": ["Alice is switching from Python to Rust for backend"],
+    "description": "Basic entity-attribute lookup"
+  },
+  {
+    "query": "Who works at Google?",
+    "relevant_texts": ["Bob works at Google as a senior engineer"],
+    "description": "Entity-workplace relationship"
+  },
+  {
+    "query": "What is the team's preferred database?",
+    "relevant_texts": ["The team prefers PostgreSQL for production workloads"],
+    "description": "Preference recall"
+  },
+  {
+    "query": "What happened at the last team meeting?",
+    "relevant_texts": ["The team decided to migrate to Kubernetes at the last meeting"],
+    "description": "Event recall"
+  },
+  {
+    "query": "What does Charlie think about TypeScript?",
+    "relevant_texts": ["Charlie prefers TypeScript over JavaScript for large projects"],
+    "description": "Opinion/preference about technology"
+  }
+]
