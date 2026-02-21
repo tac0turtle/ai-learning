@@ -109,6 +109,15 @@ def update_access(memory_id: str):
     )
 
 
+def mark_superseded(memory_id: str):
+    """Mark a memory as no longer the latest version."""
+    table = _get_table()
+    table.update(
+        where=f"id = '{memory_id}'",
+        values={"is_latest": False},
+    )
+
+
 def mark_consolidated(memory_id: str, summary_id: str):
     """Mark a memory as consolidated into a summary."""
     table = _get_table()

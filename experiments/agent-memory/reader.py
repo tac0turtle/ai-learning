@@ -52,8 +52,10 @@ def search(query: str, k: int = config.MMR_DEFAULT_K) -> list[SearchResult]:
     # Score all candidates
     candidates = []
     for row in raw_results:
-        # Skip consolidated memories (they've been merged into summaries)
+        # Skip consolidated or superseded memories
         if row.get("consolidated_into", ""):
+            continue
+        if not row.get("is_latest", True):
             continue
 
         distance = row.get("_distance", 0.0)

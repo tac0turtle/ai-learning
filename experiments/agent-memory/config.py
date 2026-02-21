@@ -36,6 +36,17 @@ MMR_DEFAULT_K = 10
 CONSOLIDATION_BATCH_SIZE = 50
 CONSOLIDATION_AGE_DAYS = 30
 
+# Classification backend: "nli" or "llm"
+CLASSIFIER_BACKEND = os.environ.get("CLASSIFIER_BACKEND", "llm")
+
+# NLI model (used when CLASSIFIER_BACKEND=nli)
+NLI_MODEL = os.environ.get("NLI_MODEL", "cross-encoder/nli-deberta-v3-base")
+NLI_CONTRADICTION_THRESHOLD = 0.65
+NLI_ENTAILMENT_THRESHOLD = 0.80
+
+# Candidate pre-filter: cosine similarity above this triggers classification
+CLASSIFY_SIMILARITY_THRESHOLD = 0.45
+
 # Server
 HOST = os.environ.get("HOST", "127.0.0.1")
 PORT = int(os.environ.get("PORT", "8001"))

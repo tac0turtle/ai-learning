@@ -18,6 +18,14 @@ class MemoryType(str, Enum):
     SUMMARY = "summary"
 
 
+class MemoryRelation(str, Enum):
+    NEW = "new"              # No existing memory matches
+    DUPLICATE = "duplicate"  # Semantically identical, skip
+    UPDATES = "updates"      # Supersedes an existing memory (temporal change)
+    EXTENDS = "extends"      # Adds detail to an existing memory
+    CONTRADICTS = "contradicts"  # Genuinely conflicts
+
+
 # -- LanceDB table schema (pyarrow) --
 
 MEMORY_SCHEMA = pa.schema([
@@ -34,6 +42,12 @@ MEMORY_SCHEMA = pa.schema([
     pa.field("access_count", pa.int32()),
     pa.field("consolidated_into", pa.string()),  # ID of summary memory, or ""
     pa.field("consolidated_from", pa.string()),  # JSON-encoded list of source IDs, or ""
+    # Version chain fields
+    pa.field("version", pa.int32()),
+    pa.field("parent_id", pa.string()),        # Previous version of this memory
+    pa.field("root_id", pa.string()),          # Original memory in the chain
+    pa.field("relation", pa.string()),         # MemoryRelation value
+    pa.field("is_latest", pa.bool_()),
 ])
 
 
@@ -53,6 +67,12 @@ class MemoryRecord(BaseModel):
     access_count: int = 0
     consolidated_into: str = ""
     consolidated_from: list[str] = Field(default_factory=list)
+    # Version chain
+    version: int = 1
+    parent_id: str = ""
+    root_id: str = ""
+    relation: str = MemoryRelation.NEW.value
+    is_latest: bool = True
 
     def to_lance_dict(self) -> dict:
         """Convert to a flat dict suitable for LanceDB insertion."""
@@ -71,6 +91,11 @@ class MemoryRecord(BaseModel):
             "access_count": self.access_count,
             "consolidated_into": self.consolidated_into,
             "consolidated_from": json.dumps(self.consolidated_from),
+            "version": self.version,
+            "parent_id": self.parent_id,
+            "root_id": self.root_id,
+            "relation": self.relation,
+            "is_latest": self.is_latest,
         }
 
     @classmethod
@@ -97,6 +122,11 @@ class MemoryRecord(BaseModel):
             access_count=row.get("access_count", 0),
             consolidated_into=row.get("consolidated_into", ""),
             consolidated_from=consolidated_from,
+            version=row.get("version", 1),
+            parent_id=row.get("parent_id", ""),
+            root_id=row.get("root_id", ""),
+            relation=row.get("relation", "new"),
+            is_latest=row.get("is_latest", True),
         )
 
 
@@ -114,6 +144,13 @@ class ExtractedFact(BaseModel):
     importance: float = Field(default=0.5, ge=0.0, le=1.0)
     topic: str = ""
     entities: list[str] = Field(default_factory=list)
+
+
+class ClassificationResult(BaseModel):
+    relation: MemoryRelation
+    existing_memory_id: str = ""
+    confidence: float = 0.0
+    reasoning: str = ""
 
 
 class ConsolidationGroup(BaseModel):

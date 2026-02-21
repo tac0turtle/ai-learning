@@ -52,6 +52,41 @@ EXTRACT_FACTS_TOOL = {
     },
 }
 
+CLASSIFY_SYSTEM = """You are a memory relationship classifier. Given a NEW memory and an EXISTING memory, classify their relationship.
+
+Rules:
+- "duplicate": The new memory says the same thing as the existing one (possibly rephrased)
+- "updates": The new memory supersedes the existing one (a temporal change, preference shift, or status update)
+- "extends": The new memory adds new detail to the existing one without contradicting it
+- "contradicts": The new memory genuinely conflicts with the existing one and both cannot be true simultaneously
+- "new": The memories are about different things entirely
+
+Critical distinction: A temporal change ("Alice used Python" -> "Alice switched to Rust") is an UPDATE, not a contradiction. Both were true at different points in time. A contradiction is when both cannot be simultaneously true ("The meeting is at 3pm" vs "The meeting is at 4pm" with no indication of a change)."""
+
+CLASSIFY_TOOL = {
+    "name": "classify_relationship",
+    "description": "Classify the relationship between two memories",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "relation": {
+                "type": "string",
+                "enum": ["duplicate", "updates", "extends", "contradicts", "new"],
+                "description": "The relationship type",
+            },
+            "confidence": {
+                "type": "number",
+                "description": "0.0 to 1.0 confidence in this classification",
+            },
+            "reasoning": {
+                "type": "string",
+                "description": "Brief explanation of why this classification was chosen",
+            },
+        },
+        "required": ["relation", "confidence", "reasoning"],
+    },
+}
+
 CONSOLIDATE_SYSTEM = """You are a memory consolidation system. Given a batch of related memories on the same topic, produce a single concise summary that preserves the key information.
 
 Rules:
